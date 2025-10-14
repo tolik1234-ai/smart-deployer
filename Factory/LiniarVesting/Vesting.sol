@@ -82,4 +82,5 @@ contract Vesting is IUtilityContract, Ownable {
     function getInitDate(address _token, uint256 _amount, address _treasury, address _owner) external pure returns (bytes memory) {
         return abi.encode(_token, _amount, _treasury, _owner);
     }
+    
 }

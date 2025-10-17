@@ -54,6 +54,7 @@ contract Vesting is IUtilityContract, Ownable {
         require(!initialized, AlreadyInitialized());
         _;
     }
+    
 
     function withdrawUnallocated(address _to) external onlyOwner {
         uint256 available = token.balanceOf(address(this)) - allocatedTokens;

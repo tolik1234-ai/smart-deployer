@@ -4,10 +4,9 @@ pragma solidity^0.8.29;
 import "../IUtilityContract.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/finance/VestingWallet.sol";
 import "@openzeppelin/contracts/proxy/Clones.sol";
 
-contract CroudFunding is IUtilityContract, Ownable {
+contract CrowdFunding is IUtilityContract, Ownable {
 
     constructor(
         uint256 _goal,
@@ -19,9 +18,10 @@ contract CroudFunding is IUtilityContract, Ownable {
         duration = _duration;
     }
 
-    address public vesting;
+    address payable  public vesting;
     bool    private initialized;
     uint256 public  liveAmount;
+    bool public finalized;
 //-----------constructor-------------
     uint256 public  goal;              
     address public  fundraiser;
@@ -36,49 +36,69 @@ contract CroudFunding is IUtilityContract, Ownable {
 
     error AlreadyInitialized();
     error GoalReached();
-    error GoalNotReached();
+    error InvalidVestingImplementation();
     error TransferFailed();
     error InvalidAmount();
     error InitializationFailed();
     error OnlyFundraiserCanWithdraw();
     error VestingCallFailed();
     error NotInitialized();
+    error Finalized();
+
+    event amountContributed(address _user, uint256 _amount, uint256 timestamp);
+    event amountRefunded(address _user, uint256 _amount, uint256 timestamp);
+    event vestingCreated(address _vestinf, address _fundraiser, uint256 _goal, uint256 _duration, uint256 timestamp);
 
     modifier  notInitialized() {
-        require(!initialized, AlreadyInitialized());
+        if (initialized) revert AlreadyInitialized();
         _;
     }
 
     modifier needInitialize() {
-        require(initialized, NotInitialized());
+        if (!initialized) revert NotInitialized();
         _;
     }
 
-    function withraw () needInitialize public {
-        require(msg.sender == fundraiser || msg.sender == owner(), OnlyFundraiserCanWithdraw());
+    function withdraw () needInitialize public {
+        if (msg.sender != fundraiser && msg.sender != owner()) {
+            revert OnlyFundraiserCanWithdraw();
+        }
 
         (bool success, ) = vesting.call(
-            abi.encodeWithSignature("release(address)", token)
+            abi.encodeWithSignature("release(address)", address(token))
         );
-        require(success, VestingCallFailed());
+
+        if (!success) revert VestingCallFailed();
     }
 
     function contribute(uint256 _amount) needInitialize public payable returns (address) {
 
-        require(token.transferFrom(msg.sender, address(this), _amount), TransferFailed());
+        if (finalized) revert Finalized();
+
+        if (!token.transferFrom(msg.sender, address(this), _amount)) {
+            revert TransferFailed();
+        }
 
         liveAmount += _amount;
         userVested[msg.sender] += _amount;
 
+        emit amountContributed(msg.sender, _amount, block.timestamp);
+
         if (liveAmount >= goal) {
-            require(vestingWallet != address(0), GoalNotReached());
+            if (vestingWallet == address(0)) revert InvalidVestingImplementation();
 
             address _vesting = Clones.clone(vestingWallet);
 
             vesting = payable(_vesting);
 
-            require(IUtilityContract(vesting).initialize(getInitDateToVesting()), InitializationFailed());
-            require(token.transfer(vesting, _amount), TransferFailed());
+            if (!IUtilityContract(vesting).initialize(getInitDataToVesting())) {
+                revert InitializationFailed();
+            }
+            if (!token.transfer(vesting, liveAmount)) revert TransferFailed();
+
+            finalized = true;
+
+            emit vestingCreated (vesting, fundraiser, goal, duration, block.timestamp);
 
             return vesting;
         } 
@@ -88,16 +108,18 @@ contract CroudFunding is IUtilityContract, Ownable {
     }
 
     function refund(uint256 _amount) needInitialize public {
-        require(liveAmount < goal, GoalReached());
-        require(userVested[msg.sender] >= _amount, InvalidAmount());
+        if (liveAmount >= goal) revert GoalReached();
+        if (userVested[msg.sender] < _amount) revert InvalidAmount();
 
-        require(token.transfer(msg.sender, _amount), TransferFailed());
+        if (!token.transfer(msg.sender, _amount)) revert  TransferFailed();
 
         liveAmount -= _amount;
         userVested[msg.sender] -= _amount;
+
+        emit amountRefunded(msg.sender, _amount, block.timestamp);
     }
 
-    function getInitDateToVesting() public view returns (bytes memory) {
+    function getInitDataToVesting() public view returns (bytes memory) {
         return abi.encode(fundraiser, uint64(block.timestamp), duration);
     }
 

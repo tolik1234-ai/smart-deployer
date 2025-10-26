@@ -1,0 +1,8 @@
+.deps
+.states
+artifacts
+contracts/artifacts
+lib/
+cache/
+out/
+docs/

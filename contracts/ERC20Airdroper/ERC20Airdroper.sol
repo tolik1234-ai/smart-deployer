@@ -2,7 +2,7 @@
 pragma solidity^0.8.29;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "./IUtilityContract.sol";
+import "../IUtilityContract.sol";
 
 contract ERC20Airdroper is IUtilityContract {
 
